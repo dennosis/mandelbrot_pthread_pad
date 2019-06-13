@@ -26,8 +26,8 @@
 static const int Image_Width = 5000;
 static const int Image_Height = 5000;
 static const int Max_Iterations = 1000;
-static const int Div_Width = 1;
-static const int Div_Height = 1;
+static const int Div_Width = 2;
+static const int Div_Height = 2;
 int rc;
 
 typedef struct Complex {
