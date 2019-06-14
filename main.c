@@ -17,18 +17,23 @@
 #include <stdio.h>
 #include <omp.h>
 #include <sys/time.h>
-//#define _OPEN_THREADS
-//#define _UNIX03_THREADS
 #include <pthread.h>
-#include <assert.h>
-//pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-//parametros de entrada
+
+/**
+ * Parametros  do fractal
+ */
 static const int Image_Width = 5000;
 static const int Image_Height = 5000;
-static const int Max_Iterations = 1000;
-static const int Div_Width = 2;
-static const int Div_Height = 2;
-int rc;
+static const int Max_Iterations = 100;
+
+/**
+ * Numero de diviões horizontais e vertivais
+ */
+static const int Div_Width = 10;
+static const int Div_Height = 10;
+
+
+pthread_mutex_t lock;
 
 typedef struct Complex {
     long double real;
@@ -39,6 +44,9 @@ typedef unsigned char RGB_Pixel[3];
 
 static const unsigned char MAX_RGB_VAL = 255;
 
+/**
+ * estrutura que será passada via parametro na pthread
+ */
 typedef struct Thread_args {
        int x;
        int y;
@@ -67,7 +75,9 @@ void calc_colors(RGB_Pixel *colors) {
     }
 };
 
-
+/**
+ * Função da pthread
+ */
 void * func_thread(void *_args){
     struct Thread_args *args = (struct Thread_args *) _args;
     
@@ -75,8 +85,6 @@ void * func_thread(void *_args){
     for (int y = args->y; y < args->y_end &&  y < Image_Height; y++) {
         for (int x = args->x; x < args->x_end && x < Image_Width; x++) {
                 
-            ///struct Thread_args *args = (struct Thread_args *) _args;
-
             Complex c = {
                     .real = args->min_bounds_real + x * args->scale_real,
                     .imaginary = args->min_bounds_imaginary + y * args->scale_imaginary
@@ -98,14 +106,14 @@ void * func_thread(void *_args){
 
                 iterations++;
             }
-            //pthread_mutex_lock(&mutex);
+            
+            pthread_mutex_lock(&lock);
             args->pixels[y * Image_Width + x][0] = args->colors[iterations][0];
             args->pixels[y * Image_Width + x][1] = args->colors[iterations][1];
             args->pixels[y * Image_Width + x][2] = args->colors[iterations][2];
-           //pthread_mutex_unlock(&mutex);
+            pthread_mutex_unlock(&lock);
         }
     }
-    pthread_exit (0);
 }
 
 int main(int argc, const char **argv) {
@@ -137,10 +145,13 @@ int main(int argc, const char **argv) {
     int tmpCont = 0;
     int qtd_total = Div_Width * Div_Height;
     int num_thread[qtd_total][4];
-    int img_y = 0;
-    int img_x = 0;
     
+    /**
+     * Loop que divide Height e Width
+    */
+    int img_y = 0;    
     while (img_y < Image_Height) {
+        int img_x = 0;
         while (img_x < Image_Width) {
             num_thread[tmpCont][0] = img_x;
             num_thread[tmpCont][1] = img_y;
@@ -149,19 +160,20 @@ int main(int argc, const char **argv) {
             tmpCont++;
             img_x = img_x+qtd_x;
         }
-     
         img_y = img_y+qtd_y;
     }
      
-   // pthread_t* threads = (pthread_t*)malloc(qtd_total  * sizeof(pthread_t));
     
     pthread_t threads[qtd_total];
     
+    Thread_args thread_args[qtd_total];
     
+
+    /**
+     * loop de criação das pthreads 
+     */
     for(int i = 0; i < qtd_total; i++) {
-       
-         
-        struct Thread_args thread_args = {
+         Thread_args thread_arg = {
                 .x = num_thread[i][0],
                 .y = num_thread[i][1],
                 .x_end = num_thread[i][2],
@@ -173,19 +185,23 @@ int main(int argc, const char **argv) {
                 .colors = colors,
                 .pixels = pixels
         };
-        
-        rc = pthread_create(&threads[i],NULL,func_thread,&thread_args);
-        assert(rc == 0); 
+        thread_args[i] = thread_arg;
+        pthread_create(&threads[i],NULL,&func_thread,&thread_args[i]);
     }
-
+    
+    /**
+     * loop de join das pthreads 
+     */
     for(int i = 0; i < qtd_total; i++) {
-       rc = pthread_join(threads[i], NULL);
-       assert(rc == 0); 
+       pthread_join(threads[i], NULL);
     }
     
     gettimeofday(&end, NULL);
     printf("Took %f seconds\n\n", end.tv_sec - start.tv_sec + (double) (end.tv_usec - start.tv_usec) / 1000000);
 
+    /**
+     * escrita no arquivo 
+     */
     FILE *fp = fopen("MandelbrotSet.ppm", "wb");
     fprintf(fp, "P6\n %d %d\n %d\n", Image_Width, Image_Height, MAX_RGB_VAL);
     fwrite(pixels, sizeof(RGB_Pixel), Image_Width * Image_Width, fp);
@@ -193,7 +209,7 @@ int main(int argc, const char **argv) {
 
     free(pixels);
 
-    pthread_exit(0);
+    pthread_mutex_destroy(&lock);
     
     return 0;
 }
